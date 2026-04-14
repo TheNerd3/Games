@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Sol Crush: Classic Ultra 🍬</title>
+    <style>
+        :root { --neon: #00f2ff; --pink: #ff00ff; --yellow: #ffff00; --bg: #0a0a0c; }
+        
+        body {
+            background: var(--bg); color: white; margin: 0;
+            font-family: 'Segoe UI', Roboto, sans-serif; height: 100vh;
+            display: flex; flex-direction: column; align-items: center;
+            overflow: hidden; touch-action: none;
+        }
+
+        /* HEADER DE PUNTUACIÓN */
+        #header { width: 100%; max-width: 400px; padding: 15px; text-align: center; }
+        #score { font-size: 55px; font-weight: 900; color: var(--neon); text-shadow: 0 0 20px var(--neon); margin: 0; }
+        
+        .timer-container {
+            width: 100%; height: 10px; background: #1a1a1a; border-radius: 10px; margin-top: 10px; 
+            border: 1px solid #333; overflow: hidden;
+        }
+        #timer-bar { width: 100%; height: 100%; background: linear-gradient(90deg, #ff0055, var(--neon)); }
+
+        /* TABLERO */
+        #grid {
+            display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px;
+            background: rgba(255, 255, 255, 0.05); padding: 10px;
+            border-radius: 20px; border: 2px solid rgba(255, 255, 255, 0.1);
+            width: 92vw; max-width: 380px; aspect-ratio: 1 / 1;
+            position: relative; backdrop-filter: blur(10px);
+        }
+
+        .candy {
+            display: flex; align-items: center; justify-content: center;
+            font-size: 28px; background: rgba(255,255,255,0.03);
+            border-radius: 10px; cursor: pointer;
+            transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            user-select: none; position: relative;
+        }
+
+        .selected {
+            background: rgba(0, 242, 255, 0.2) !important;
+            box-shadow: 0 0 25px var(--neon);
+            transform: scale(1.1); z-index: 100;
+        }
+
+        /* ESPECIALES (ICONOS PEQUEÑOS ARRIBA) */
+        .striped::after { content: '⚡'; position: absolute; font-size: 10px; top: 2px; right: 2px; }
+        .wrapped::after { content: '💣'; position: absolute; font-size: 10px; top: 2px; right: 2px; }
+
+        /* OVERLAYS */
+        #overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.9);
+            display: flex; flex-direction: column; justify-content: center;
+            align-items: center; z-index: 2000; display: none; text-align: center;
+        }
+
+        .floating-text {
+            position: absolute; pointer-events: none; color: var(--yellow); font-weight: 900;
+            animation: floatUp 0.8s forwards; z-index: 500; text-shadow: 0 0 10px orange;
+        }
+
+        @keyframes floatUp { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-80px); } }
+        .shake { animation: shakeAnim 0.3s; }
+        @keyframes shakeAnim { 0% { transform: translate(0); } 25% { transform: translate(4px, 4px); } 50% { transform: translate(-4px, -4px); } 100% { transform: translate(0); } }
+    </style>
+</head>
+<body>
+
+    <div id="header">
+        <h1 id="score">0</h1>
+        <div class="timer-container">
+            <div id="timer-bar"></div>
+        </div>
+    </div>
+
+    <div id="grid"></div>
+
+    <div id="overlay">
+        <h1 style="color: var(--pink); font-size: 40px;">¡TIEMPO AGOTADO!</h1>
+        <p id="final-score" style="font-size: 20px;"></p>
+        <button onclick="location.reload()" style="padding: 12px 30px; background: var(--neon); border: none; border-radius: 50px; font-weight: bold; cursor: pointer;">JUGAR DE NUEVO</button>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+
+    <script>
+        const grid = document.getElementById('grid');
+        const scoreEl = document.getElementById('score');
+        const timerBar = document.getElementById('timer-bar');
+        const overlay = document.getElementById('overlay');
+        
+        const width = 8;
+        const candies = ['🍬', '🍭', '🍫', '🍩', '🍪', '🍓'];
+        let board = [];
+        let score = 0;
+        let timeLeft = 100;
+        let firstSelection = null;
+        let isProcessing = false;
+
+        function init() {
+            for (let i = 0; i < width * width; i++) {
+                const candy = document.createElement('div');
+                candy.className = 'candy';
+                candy.id = i;
+                candy.innerText = candies[Math.floor(Math.random() * candies.length)];
+                candy.onclick = () => handleSelection(i);
+                grid.appendChild(candy);
+                board.push(candy);
+            }
+            startTimer();
+            setTimeout(checkMatches, 500);
+        }
+
+        function startTimer() {
+            const countdown = setInterval(() => {
+                if (timeLeft <= 0) {
+                    clearInterval(countdown);
+                    showGameOver();
+                }
+                if(gameActive) timeLeft -= 0.18;
+                timerBar.style.width = timeLeft + "%";
+            }, 100);
+        }
+
+        async function handleSelection(i) {
+            if (isProcessing) return;
+            if (firstSelection === null) {
+                firstSelection = i;
+                board[i].classList.add('selected');
+            } else {
+                const second = i;
+                board[firstSelection].classList.remove('selected');
+                if (isAdjacent(firstSelection, second)) {
+                    isProcessing = true;
+                    await swap(firstSelection, second);
+                    if (!await checkMatches()) {
+                        await new Promise(r => setTimeout(r, 250));
+                        await swap(firstSelection, second);
+                    }
+                    isProcessing = false;
+                }
+                firstSelection = null;
+            }
+        }
+
+        function isAdjacent(a, b) {
+            const r1 = Math.floor(a/8), c1 = a%8, r2 = Math.floor(b/8), c2 = b%8;
+            return Math.abs(r1-r2) + Math.abs(c1-c2) === 1;
+        }
+
+        async function swap(a, b) {
+            const tText = board[a].innerText;
+            const tClass = board[a].className;
+            board[a].innerText = board[b].innerText;
+            board[a].className = board[b].className;
+            board[b].innerText = tText;
+            board[b].className = tClass;
+            board[a].classList.add('candy');
+            board[b].classList.add('candy');
+        }
+
+        async function checkMatches() {
+            let matches = new Set();
+            let special = [];
+
+            for (let i = 0; i < 64; i++) {
+                let row = getLine(i, 1);
+                if (row.length >= 3) {
+                    row.forEach(idx => matches.add(idx));
+                    if(row.length === 4) special.push({idx: row[0], type: 'striped'});
+                    if(row.length >= 5) special.push({idx: row[0], type: 'wrapped'});
+                }
+                let col = getLine(i, 8);
+                if (col.length >= 3) {
+                    col.forEach(idx => matches.add(idx));
+                    if(col.length === 4) special.push({idx: col[0], type: 'striped'});
+                    if(col.length >= 5) special.push({idx: col[0], type: 'wrapped'});
+                }
+            }
+
+            if (matches.size > 0) {
+                grid.classList.add('shake');
+                setTimeout(() => grid.classList.remove('shake'), 200);
+
+                matches.forEach(idx => {
+                    if (board[idx].classList.contains('striped')) triggerLine(idx, matches);
+                    if (board[idx].classList.contains('wrapped')) triggerBomb(idx, matches);
+                });
+
+                score += matches.size * 10;
+                scoreEl.innerText = score;
+                timeLeft = Math.min(100, timeLeft + (matches.size * 0.7));
+
+                matches.forEach(idx => {
+                    board[idx].innerText = '';
+                    board[idx].className = 'candy';
+                });
+
+                special.forEach(s => {
+                    board[s.idx].innerText = candies[Math.floor(Math.random() * candies.length)];
+                    board[s.idx].classList.add(s.type);
+                });
+
+                if(matches.size > 5) confetti({ particleCount: 40, spread: 50, origin: { y: 0.8 } });
+
+                await refill();
+                return true;
+            }
+            return false;
+        }
+
+        function getLine(start, step) {
+            let c = board[start].innerText;
+            if (!c) return [];
+            let line = [start];
+            for (let j = 1; j < 8; j++) {
+                let n = start + (j * step);
+                if (n >= 64 || (step === 1 && Math.floor(n/8) !== Math.floor(start/8))) break;
+                if (board[n].innerText === c) line.push(n);
+                else break;
+            }
+            return line.length >= 3 ? line : [];
+        }
+
+        function triggerLine(idx, set) {
+            const r = Math.floor(idx/8) * 8;
+            for(let i=0; i<8; i++) set.add(r+i);
+            spawnText("⚡ LINEA!", board[idx]);
+        }
+
+        function triggerBomb(idx, set) {
+            const r = Math.floor(idx/8), c = idx%8;
+            for(let i=-1; i<=1; i++) {
+                for(let j=-1; j<=1; j++) {
+                    let ni = r+i, nj = c+j;
+                    if(ni>=0 && ni<8 && nj>=0 && nj<8) set.add(ni*8+nj);
+                }
+            }
+            spawnText("💣 BOMBA!", board[idx]);
+        }
+
+        async function refill() {
+            for (let i = 55; i >= 0; i--) {
+                if (board[i+8].innerText === '') {
+                    board[i+8].innerText = board[i].innerText;
+                    board[i+8].className = board[i].className;
+                    board[i].innerText = '';
+                    board[i].className = 'candy';
+                }
+            }
+            for (let i = 0; i < 8; i++) {
+                if (board[i].innerText === '') {
+                    board[i].innerText = candies[Math.floor(Math.random() * candies.length)];
+                }
+            }
+            if (board.some(c => c.innerText === '')) {
+                await new Promise(r => setTimeout(r, 60));
+                await refill();
+            } else {
+                await checkMatches();
+            }
+        }
+
+        function spawnText(txt, target) {
+            const t = document.createElement('div');
+            t.className = 'floating-text';
+            t.innerText = txt;
+            t.style.left = target.offsetLeft + "px";
+            t.style.top = target.offsetTop + "px";
+            grid.appendChild(t);
+            setTimeout(() => t.remove(), 800);
+        }
+
+        function showGameOver() {
+            gameActive = false;
+            overlay.style.display = 'flex';
+            document.getElementById('final-score').innerText = `Puntaje: ${score}`;
+        }
+
+        let gameActive = true;
+        init();
+    </script>
+</body>
+</html>
