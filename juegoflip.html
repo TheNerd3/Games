@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Neon Jump - Sol</title>
+    <style>
+        body {
+            margin: 0;
+            background: #050505;
+            overflow: hidden;
+            font-family: 'Arial', sans-serif;
+            touch-action: none;
+        }
+        #game-canvas {
+            display: block;
+        }
+        #ui {
+            position: absolute;
+            top: 20px;
+            width: 100%;
+            text-align: center;
+            color: #00f2ff;
+            font-size: 30px;
+            font-weight: bold;
+            text-shadow: 0 0 10px #00f2ff;
+            pointer-events: none;
+        }
+        #overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(0,0,0,0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            text-align: center;
+        }
+        button {
+            padding: 15px 40px;
+            font-size: 20px;
+            background: #00f2ff;
+            border: none;
+            border-radius: 50px;
+            font-weight: bold;
+            box-shadow: 0 0 20px #00f2ff;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui">Score: <span id="score">0</span></div>
+    
+    <div id="overlay">
+        <h1 id="titulo">NEON JUMP</h1>
+        <p id="subtitulo">Tocá la pantalla para saltar</p>
+        <button id="btn-start">EMPEZAR</button>
+    </div>
+
+    <canvas id="game-canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('game-canvas');
+        const ctx = canvas.getContext('2d');
+        const scoreEl = document.getElementById('score');
+        const overlay = document.getElementById('overlay');
+        const btnStart = document.getElementById('btn-start');
+
+        // Ajustar tamaño del canvas
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        // Variables del juego
+        let birdY, birdV, birdA, score, gameActive, pipes;
+        const gravity = 0.6;
+        const jump = -10;
+        const pipeWidth = 60;
+        const pipeGap = 180;
+
+        function reset() {
+            birdY = canvas.height / 2;
+            birdV = 0;
+            score = 0;
+            pipes = [];
+            gameActive = true;
+            scoreEl.innerText = score;
+            overlay.style.display = 'none';
+        }
+
+        function createPipe() {
+            const minPipeHeight = 50;
+            const range = canvas.height - pipeGap - (minPipeHeight * 2);
+            const topHeight = Math.floor(Math.random() * range) + minPipeHeight;
+            pipes.push({
+                x: canvas.width,
+                top: topHeight,
+                passed: false
+            });
+        }
+
+        function update() {
+            if (!gameActive) return;
+
+            // Físicas del personaje
+            birdV += gravity;
+            birdY += birdV;
+
+            // Límites de pantalla
+            if (birdY > canvas.height || birdY < 0) {
+                endGame();
+            }
+
+            // Gestión de obstáculos
+            if (pipes.length === 0 || pipes[pipes.length - 1].x < canvas.width - 250) {
+                createPipe();
+            }
+
+            pipes.forEach((pipe, index) => {
+                pipe.x -= 3.5; // Velocidad de avance
+
+                // Detección de colisión
+                if (
+                    50 + 30 > pipe.x && 50 < pipe.x + pipeWidth &&
+                    (birdY < pipe.top || birdY + 30 > pipe.top + pipeGap)
+                ) {
+                    endGame();
+                }
+
+                // Sumar puntos
+                if (!pipe.passed && pipe.x < 50) {
+                    score++;
+                    scoreEl.innerText = score;
+                    pipe.passed = true;
+                }
+
+                // Eliminar pipes viejos
+                if (pipe.x < -pipeWidth) pipes.splice(index, 1);
+            });
+
+            draw();
+            requestAnimationFrame(update);
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Dibujar personaje (Pelotita neón)
+            ctx.fillStyle = '#00f2ff';
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = '#00f2ff';
+            ctx.beginPath();
+            ctx.arc(65, birdY, 15, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Dibujar obstáculos
+            ctx.fillStyle = '#ff0055';
+            ctx.shadowColor = '#ff0055';
+            pipes.forEach(pipe => {
+                // Parte superior
+                ctx.fillRect(pipe.x, 0, pipeWidth, pipe.top);
+                // Parte inferior
+                ctx.fillRect(pipe.x, pipe.top + pipeGap, pipeWidth, canvas.height);
+            });
+            ctx.shadowBlur = 0;
+        }
+
+        function endGame() {
+            gameActive = false;
+            overlay.style.display = 'flex';
+            document.getElementById('titulo').innerText = "¡PERDISTE, PETE!";
+            document.getElementById('subtitulo').innerText = `Puntaje final: ${score}`;
+            btnStart.innerText = "REINTENTAR";
+        }
+
+        // Eventos
+        const action = () => {
+            if (gameActive) birdV = jump;
+        };
+
+        window.addEventListener('touchstart', (e) => { e.preventDefault(); action(); });
+        window.addEventListener('mousedown', action);
+        
+        btnStart.addEventListener('click', (e) => {
+            e.stopPropagation();
+            reset();
+            update();
+        });
+    </script>
+</body>
+</html>
