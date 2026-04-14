@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Cyber Chaos Keyboard - Sol</title>
+    <style>
+        body { margin: 0; background: #050505; overflow: hidden; font-family: 'Segoe UI', sans-serif; touch-action: none; color: white; }
+        canvas { display: block; }
+        #ui {
+            position: absolute;
+            top: 20px;
+            width: 100%;
+            display: flex;
+            justify-content: space-around;
+            pointer-events: none;
+            z-index: 10;
+        }
+        .stat {
+            background: rgba(0, 0, 0, 0.5);
+            padding: 5px 15px;
+            border-radius: 20px;
+            border: 1px solid #ff00ff;
+            box-shadow: 0 0 10px #ff00ff;
+            font-weight: bold;
+        }
+        #overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(0,0,0,0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            z-index: 100;
+        }
+        button {
+            padding: 15px 40px;
+            background: #00f2ff;
+            border: none;
+            border-radius: 50px;
+            font-weight: bold;
+            box-shadow: 0 0 20px #00f2ff;
+            margin-top: 20px;
+            color: black;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui">
+        <div class="stat">SCORE: <span id="score">0</span></div>
+        <div class="stat">PELOTAS: <span id="balls-count">1</span></div>
+    </div>
+    
+    <div id="overlay">
+        <h1 id="titulo">CYBER CHAOS</h1>
+        <p id="subtitulo">Usá las flechas ← → o deslizá en el celu</p>
+        <button id="btn-start">INICIAR CAOS</button>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        const scoreEl = document.getElementById("score");
+        const ballsCountEl = document.getElementById("balls-count");
+        const overlay = document.getElementById("overlay");
+        const btnStart = document.getElementById("btn-start");
+
+        let score, gameActive, paddle, bricks, balls, powerups;
+        const brickConf = { rows: 6, cols: 0, width: 0, height: 25, padding: 8, offsetTop: 90 };
+        const ballRadius = 8;
+        const powerupSize = 20;
+
+        // LÓGICA DE TECLADO
+        let rightPressed = false;
+        let leftPressed = false;
+
+        function init() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            score = 0;
+            gameActive = false;
+            balls = [];
+            powerups = [];
+            
+            // La paleta ahora tiene una velocidad para el teclado
+            paddle = { 
+                h: 15, 
+                w: 120, 
+                x: (canvas.width - 120) / 2,
+                speed: 10 
+            };
+            
+            initBricks();
+            resetUI();
+        }
+
+        function initBricks() {
+            brickConf.cols = Math.floor(canvas.width / (70 + brickConf.padding));
+            brickConf.width = (canvas.width - (brickConf.padding * (brickConf.cols + 1))) / brickConf.cols;
+            bricks = [];
+            for (let c = 0; c < brickConf.cols; c++) {
+                bricks[c] = [];
+                for (let r = 0; r < brickConf.rows; r++) {
+                    bricks[c][r] = { x: 0, y: 0, status: 1 };
+                }
+            }
+        }
+
+        function createBall(x, y, dx, dy) {
+            balls.push({ x, y, dx, dy });
+            ballsCountEl.innerText = balls.length;
+        }
+
+        function startGame() {
+            init();
+            createBall(canvas.width / 2, canvas.height - 60, 5, -5);
+            gameActive = true;
+            overlay.style.display = "none";
+            update();
+        }
+
+        // EVENTOS DE TECLADO
+        document.addEventListener("keydown", (e) => {
+            if (e.key === "Right" || e.key === "ArrowRight") rightPressed = true;
+            else if (e.key === "Left" || e.key === "ArrowLeft") leftPressed = true;
+        });
+
+        document.addEventListener("keyup", (e) => {
+            if (e.key === "Right" || e.key === "ArrowRight") rightPressed = false;
+            else if (e.key === "Left" || e.key === "ArrowLeft") leftPressed = false;
+        });
+
+        // MOVIMIENTO TOUCH / MOUSE
+        const movePaddlePointer = (e) => {
+            if(!gameActive) return;
+            let clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            paddle.x = clientX - paddle.w / 2;
+        };
+        window.addEventListener("mousemove", movePaddlePointer);
+        window.addEventListener("touchmove", (e) => { e.preventDefault(); movePaddlePointer(e); }, { passive: false });
+
+        function collisionLogic() {
+            // Movimiento de la paleta por teclado
+            if (rightPressed && paddle.x < canvas.width - paddle.w) {
+                paddle.x += paddle.speed;
+            } else if (leftPressed && paddle.x > 0) {
+                paddle.x -= paddle.speed;
+            }
+
+            // Evitar que se salga de los bordes (por mouse/touch)
+            if (paddle.x < 0) paddle.x = 0;
+            if (paddle.x + paddle.w > canvas.width) paddle.x = canvas.width - paddle.w;
+
+            for (let i = balls.length - 1; i >= 0; i--) {
+                let b = balls[i];
+                if (b.x + b.dx > canvas.width - ballRadius || b.x + b.dx < ballRadius) b.dx = -b.dx;
+                if (b.y + b.dy < ballRadius) b.dy = -b.dy; 
+                else if (b.y + b.dy > canvas.height - ballRadius - 25) {
+                    if (b.x > paddle.x && b.x < paddle.x + paddle.w) {
+                        b.dy = -b.dy;
+                        b.dx = 10 * ((b.x - (paddle.x + paddle.w / 2)) / paddle.w);
+                    } else {
+                        balls.splice(i, 1);
+                        ballsCountEl.innerText = balls.length;
+                        if (balls.length === 0) endGame();
+                        continue;
+                    }
+                }
+
+                let brickHit = false;
+                for (let c = 0; c < brickConf.cols; c++) {
+                    for (let r = 0; r < brickConf.rows; r++) {
+                        let bk = bricks[c][r];
+                        if (bk.status === 1) {
+                            if (b.x > bk.x && b.x < bk.x + brickConf.width && b.y > bk.y && b.y < bk.y + brickConf.height) {
+                                b.dy = -b.dy;
+                                bk.status = 0;
+                                score += 10;
+                                scoreEl.innerText = score;
+                                if (Math.random() < 0.20) {
+                                    powerups.push({ x: bk.x + brickConf.width/2, y: bk.y, dy: 3 });
+                                }
+                                brickHit = true; break;
+                            }
+                        }
+                    }
+                    if (brickHit) break;
+                }
+                b.x += b.dx;
+                b.y += b.dy;
+            }
+
+            for (let i = powerups.length - 1; i >= 0; i--) {
+                let p = powerups[i];
+                p.y += p.dy;
+                if (p.y + powerupSize > canvas.height - 30 && p.x > paddle.x && p.x < paddle.x + paddle.w) {
+                    const mainBall = balls[0] || {x: canvas.width/2, y: canvas.height/2, dx: 5, dy: -5};
+                    createBall(mainBall.x, mainBall.y, -mainBall.dx, mainBall.dy);
+                    createBall(paddle.x + paddle.w/2, canvas.height - 60, 2, -6);
+                    powerups.splice(i, 1);
+                } else if (p.y > canvas.height) {
+                    powerups.splice(i, 1);
+                }
+            }
+        }
+
+        function update() {
+            if (!gameActive) return;
+            collisionLogic();
+            draw();
+            requestAnimationFrame(update);
+        }
+
+        function draw() {
+            ctx.fillStyle = "#050505";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.shadowBlur = 10;
+            for (let c = 0; c < brickConf.cols; c++) {
+                for (let r = 0; r < brickConf.rows; r++) {
+                    if (bricks[c][r].status === 1) {
+                        let bx = c * (brickConf.width + brickConf.padding) + brickConf.padding;
+                        let by = r * (brickConf.height + brickConf.padding) + brickConf.offsetTop;
+                        bricks[c][r].x = bx;
+                        bricks[c][r].y = by;
+                        ctx.fillStyle = `hsl(${r * 35}, 100%, 55%)`;
+                        ctx.shadowColor = ctx.fillStyle;
+                        ctx.fillRect(bx, by, brickConf.width, brickConf.height);
+                    }
+                }
+            }
+            ctx.fillStyle = "#ff00ff";
+            ctx.shadowColor = "#ff00ff";
+            powerups.forEach(p => ctx.fillRect(p.x - powerupSize/2, p.y, powerupSize, powerupSize));
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = "#00f2ff";
+            ctx.fillStyle = "#fff";
+            balls.forEach(b => {
+                ctx.beginPath();
+                ctx.arc(b.x, b.y, ballRadius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.closePath();
+            });
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = "#00f2ff";
+            ctx.fillStyle = "#00f2ff";
+            ctx.fillRect(paddle.x, canvas.height - 30, paddle.w, paddle.h);
+            ctx.shadowBlur = 0;
+        }
+
+        function endGame() {
+            gameActive = false;
+            overlay.style.display = "flex";
+            document.getElementById("titulo").innerText = "¡CHAOS OVER!";
+            btnStart.innerText = "REINTENTAR";
+        }
+
+        function resetUI() {
+            scoreEl.innerText = score;
+            ballsCountEl.innerText = "0";
+        }
+
+        btnStart.addEventListener("click", startGame);
+        window.addEventListener("resize", init);
+        init();
+    </script>
+</body>
+</html>

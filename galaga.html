@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Sol Space Defender Pro</title>
+    <style>
+        body { 
+            margin: 0; 
+            background: #020205; 
+            overflow: hidden; 
+            font-family: 'Segoe UI', sans-serif; 
+            touch-action: none; 
+            color: white;
+        }
+        canvas { display: block; }
+        #ui {
+            position: absolute;
+            top: 20px;
+            width: 100%;
+            display: flex;
+            justify-content: space-around;
+            pointer-events: none;
+            z-index: 10;
+        }
+        .stat {
+            background: rgba(0, 0, 0, 0.5);
+            padding: 5px 15px;
+            border-radius: 20px;
+            border: 1px solid #00d4ff;
+            box-shadow: 0 0 10px #00d4ff;
+        }
+        #overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+        button {
+            padding: 15px 40px;
+            font-size: 20px;
+            background: #00d4ff;
+            border: none;
+            border-radius: 50px;
+            font-weight: bold;
+            color: black;
+            box-shadow: 0 0 20px #00d4ff;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui">
+        <div class="stat">SCORE: <span id="score">0</span></div>
+        <div class="stat">VIDAS: <span id="lives">3</span></div>
+    </div>
+
+    <div id="overlay">
+        <h1 id="msg-h1">SPACE DEFENDER</h1>
+        <p id="msg-p">Deslizá para moverte</p>
+        <button id="btn-start">DESPEGAR</button>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        const scoreEl = document.getElementById("score");
+        const livesEl = document.getElementById("lives");
+        const overlay = document.getElementById("overlay");
+        const btnStart = document.getElementById("btn-start");
+
+        let score, lives, gameActive, lastShot, player, bullets, enemies, particles;
+
+        function init() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            score = 0;
+            lives = 3;
+            gameActive = false;
+            bullets = [];
+            enemies = [];
+            particles = [];
+            lastShot = 0;
+            player = {
+                x: canvas.width / 2 - 20,
+                y: canvas.height - 100,
+                w: 40,
+                h: 40,
+                targetX: canvas.width / 2 - 20
+            };
+            scoreEl.innerText = score;
+            livesEl.innerText = lives;
+        }
+
+        // Sistema de Partículas para explosiones
+        function createExplosion(x, y, color) {
+            for(let i=0; i<8; i++) {
+                particles.push({
+                    x: x,
+                    y: y,
+                    vx: (Math.random() - 0.5) * 10,
+                    vy: (Math.random() - 0.5) * 10,
+                    life: 1.0,
+                    color: color
+                });
+            }
+        }
+
+        // Controles Celu
+        window.addEventListener('touchmove', (e) => {
+            if(!gameActive) return;
+            e.preventDefault();
+            player.x = e.touches[0].clientX - player.w / 2;
+        }, {passive: false});
+
+        window.addEventListener('mousemove', (e) => {
+            if(!gameActive) return;
+            player.x = e.clientX - player.w / 2;
+        });
+
+        function update() {
+            if (!gameActive) return;
+
+            // Disparo automático rápido
+            let now = Date.now();
+            if (now - lastShot > 200) {
+                bullets.push({ x: player.x + player.w/2 - 2, y: player.y, speed: 12 });
+                lastShot = now;
+            }
+
+            // Mover balas
+            bullets.forEach((b, i) => {
+                b.y -= b.speed;
+                if (b.y < 0) bullets.splice(i, 1);
+            });
+
+            // Generar Enemigos
+            if (Math.random() < 0.04) {
+                const size = 30 + Math.random() * 30;
+                enemies.push({
+                    x: Math.random() * (canvas.width - size),
+                    y: -size,
+                    size: size,
+                    speed: 3 + (score / 200), // Sube dificultad
+                    hp: Math.ceil(size / 20)
+                });
+            }
+
+            // Mover Partículas
+            particles.forEach((p, i) => {
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life -= 0.02;
+                if(p.life <= 0) particles.splice(i, 1);
+            });
+
+            // Mover Enemigos
+            enemies.forEach((en, i) => {
+                en.y += en.speed;
+
+                // Colisión con jugador
+                if (en.y + en.size > player.y && en.x < player.x + player.w && en.x + en.size > player.x) {
+                    createExplosion(player.x + 20, player.y + 20, '#ff0000');
+                    enemies.splice(i, 1);
+                    lives--;
+                    livesEl.innerText = lives;
+                    if(lives <= 0) endGame();
+                }
+
+                // Colisión Bala - Enemigo
+                bullets.forEach((b, bi) => {
+                    if (b.x < en.x + en.size && b.x + 4 > en.x && b.y < en.y + en.size && b.y + 10 > en.y) {
+                        en.hp--;
+                        createExplosion(b.x, b.y, '#00d4ff');
+                        bullets.splice(bi, 1);
+                        if (en.hp <= 0) {
+                            createExplosion(en.x + en.size/2, en.y + en.size/2, '#ff0055');
+                            score += 10;
+                            scoreEl.innerText = score;
+                            enemies.splice(i, 1);
+                        }
+                    }
+                });
+
+                if (en.y > canvas.height) {
+                    enemies.splice(i, 1);
+                    // Si se te escapa uno, perdés vida (opcional, para hacerlo más difícil)
+                }
+            });
+
+            draw();
+            requestAnimationFrame(update);
+        }
+
+        function draw() {
+            ctx.fillStyle = "#020205";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Dibujar Partículas
+            particles.forEach(p => {
+                ctx.globalAlpha = p.life;
+                ctx.fillStyle = p.color;
+                ctx.fillRect(p.x, p.y, 3, 3);
+            });
+            ctx.globalAlpha = 1;
+
+            // Dibujar Jugador
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = "#00d4ff";
+            ctx.fillStyle = "#00d4ff";
+            ctx.beginPath();
+            ctx.moveTo(player.x + player.w/2, player.y);
+            ctx.lineTo(player.x, player.y + player.h);
+            ctx.lineTo(player.x + player.w, player.y + player.h);
+            ctx.fill();
+
+            // Balas
+            ctx.shadowColor = "yellow";
+            ctx.fillStyle = "yellow";
+            bullets.forEach(b => ctx.fillRect(b.x, b.y, 4, 12));
+
+            // Enemigos
+            ctx.shadowColor = "#ff0055";
+            ctx.fillStyle = "#ff0055";
+            enemies.forEach(en => {
+                ctx.fillRect(en.x, en.y, en.size, en.size);
+                // Mini barra de vida arriba del enemigo
+                if(en.hp > 1) {
+                    ctx.fillStyle = "white";
+                    ctx.fillRect(en.x, en.y - 5, en.size * (en.hp/3), 2);
+                }
+            });
+            ctx.shadowBlur = 0;
+        }
+
+        function endGame() {
+            gameActive = false;
+            overlay.style.display = "flex";
+            document.getElementById("msg-h1").innerText = "GAME OVER";
+            document.getElementById("msg-p").innerText = `Hiciste ${score} puntos. \n El espacio no es para petes.`;
+            btnStart.innerText = "VOLVER A INTENTAR";
+        }
+
+        btnStart.addEventListener('click', () => {
+            init();
+            gameActive = true;
+            overlay.style.display = "none";
+            update();
+        });
+
+        window.addEventListener('resize', init);
+        init();
+    </script>
+</body>
+</html>
